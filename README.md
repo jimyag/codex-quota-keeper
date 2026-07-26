@@ -8,7 +8,7 @@
 A small local daemon-friendly CLI for two opt-in Codex quota automations:
 
 1. Open a new five-hour usage window after the previously observed window expires.
-2. Redeem a reset credit shortly before it expires, but only after a usage threshold and grace period are satisfied.
+2. Redeem a reset credit shortly before it expires so that it is not wasted.
 
 Both automations are disabled by default. `run` is also a dry-run unless `--apply` is passed.
 
@@ -18,11 +18,10 @@ Both automations are disabled by default. `run` is also a dry-run unless `--appl
 - Fetches detailed reset-credit inventory only when reset-credit automation is enabled.
 - Never performs an action unless its feature is enabled in the config.
 - Requires `--apply` in addition to the per-feature config switch.
-- Defaults reset-credit redemption to the secondary/weekly window at 90% used.
-- Starts a grace period the first time an expiring credit becomes eligible.
+- Does not automatically redeem based on quota usage; normal redemption remains manual.
+- Redeems only when an available credit has less than `redeem_before_expiry` remaining.
 - Stores only a hash of each credit ID in local state.
 - Uses atomic state writes with mode `0600`.
-- Provides `cancel` to permanently skip every currently pending reset credit.
 
 Reset-credit redemption is different from normal usage monitoring: it calls an undocumented ChatGPT backend endpoint and consumes a finite account credit. The endpoint can change without notice. Keep dry-run enabled until you have reviewed several decisions.
 
@@ -80,10 +79,7 @@ Review the config:
   },
   "reset_credit": {
     "enabled": false,
-    "expires_within": "2h",
-    "grace_period": "10m",
-    "usage_window": "secondary",
-    "minimum_used_percent": 90
+    "redeem_before_expiry": "10m"
   }
 }
 ```
@@ -112,12 +108,6 @@ bin/codex-quota-keeper run --apply
 
 Enabling a feature in the config is not sufficient by itself. The process must also receive `--apply`.
 
-Skip pending reset-credit actions:
-
-```bash
-bin/codex-quota-keeper cancel
-```
-
 ## Window starter
 
 The program remembers the latest primary-window reset timestamp reported by Codex. After that timestamp passes, it runs the configured command once if the current time is inside `working_hours`.
@@ -134,25 +124,17 @@ This automation only starts a rolling window. It does not increase the weekly qu
 
 ## Reset-credit redemption
 
-A credit becomes eligible only when all of these conditions are true:
+A credit is automatically redeemed only when all of these conditions are true:
 
 - its status is `available`;
 - it has an expiration time;
-- it expires within `expires_within`;
-- the configured usage window meets `minimum_used_percent`;
-- it has remained eligible for the full `grace_period`;
-- the same credit hash has not already been redeemed.
-- the user has not skipped it with `cancel`.
+- it has less than `redeem_before_expiry` remaining;
+- the same credit hash has not already been redeemed;
+- reset-credit automation is enabled and the process receives `--apply`.
 
-When a credit first becomes eligible, the program records it as pending and sends a macOS notification. `cancel` moves every pending credit into the skipped set, so later scheduled runs do not arm it again.
-
-`usage_window` accepts:
-
-- `primary`: five-hour usage;
-- `secondary`: weekly usage;
-- `either`: the higher available percentage.
-
-`secondary` is the safer default because it avoids spending a finite reset credit only to reset a short five-hour window.
+The default `redeem_before_expiry` is `10m`. Quota usage does not affect this
+decision: credits with more time remaining are left for manual use, while
+credits in their final ten minutes are redeemed to avoid wasting them.
 
 ## launchd
 
@@ -160,7 +142,8 @@ Copy [`deploy/com.jimyag.codex-quota-keeper.plist.example`](deploy/com.jimyag.co
 
 The example intentionally omits `--apply`, so scheduled runs remain dry-run. Add `--apply` to `ProgramArguments` only after reviewing the logs and enabling the desired config sections.
 
-The job runs once every five minutes. That interval should be shorter than the configured reset-credit grace period.
+The job runs once every five minutes. Keep that interval shorter than
+`redeem_before_expiry` so an expiring credit is observed in time.
 
 ## Authentication boundary
 

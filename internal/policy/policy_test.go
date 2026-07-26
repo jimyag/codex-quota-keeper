@@ -57,9 +57,9 @@ func TestWindowDoesNotStartOutsideWorkingHours(t *testing.T) {
 	}
 }
 
-func TestCreditWaitsForGracePeriod(t *testing.T) {
+func TestCreditRedeemsOnlyNearExpiry(t *testing.T) {
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
-	expiresAt := now.Add(time.Hour).Unix()
+	expiresAt := now.Add(9 * time.Minute).Unix()
 	credits := []codex.ResetCredit{{
 		ID:        "credit-secret-id",
 		Status:    "available",
@@ -68,47 +68,25 @@ func TestCreditWaitsForGracePeriod(t *testing.T) {
 	}}
 	cfg := testConfig()
 	cfg.ResetCredit.Enabled = true
-	cfg.ResetCredit.UsageWindow = "secondary"
-	cfg.ResetCredit.MinimumUsedPercent = 90
-	cfg.ResetExpiresWithinDuration = 2 * time.Hour
-	cfg.ResetGracePeriodDuration = 10 * time.Minute
+	cfg.ResetRedeemBeforeDuration = 10 * time.Minute
 	current := keeperstate.New()
 	limits := codex.RateLimitsResponse{
-		RateLimits: codex.RateLimitSnapshot{
-			Secondary: &codex.RateLimitWindow{UsedPercent: 95},
-		},
 		RateLimitResetCredits: &codex.ResetCreditsSummary{
 			AvailableCount: 1,
 			Credits:        &credits,
 		},
 	}
 
-	first := Evaluate(now, cfg, limits, &current)
-	if first.CreditAction != nil {
-		t.Fatal("expected the first eligible observation to start the grace period")
+	result := Evaluate(now, cfg, limits, &current)
+	if result.CreditAction == nil {
+		t.Fatal("expected a near-expiry credit action")
 	}
-	if first.CreditPending == nil {
-		t.Fatal("expected pending-credit details for notification")
-	}
-	if len(current.PendingCredits) != 1 {
-		t.Fatalf("expected one pending credit, got %d", len(current.PendingCredits))
-	}
-
-	second := Evaluate(now.Add(9*time.Minute), cfg, limits, &current)
-	if second.CreditAction != nil {
-		t.Fatal("expected no action before the grace period ends")
-	}
-
-	third := Evaluate(now.Add(10*time.Minute), cfg, limits, &current)
-	if third.CreditAction == nil {
-		t.Fatal("expected a credit action after the grace period")
-	}
-	if third.CreditAction.CreditHash != CreditHash("credit-secret-id") {
+	if result.CreditAction.CreditHash != CreditHash("credit-secret-id") {
 		t.Fatal("expected a stable hashed credit ID")
 	}
 }
 
-func TestCreditRequiresConfiguredUsage(t *testing.T) {
+func TestCreditWaitsUntilNearExpiry(t *testing.T) {
 	now := time.Now()
 	expiresAt := now.Add(time.Hour).Unix()
 	credits := []codex.ResetCredit{{
@@ -118,40 +96,8 @@ func TestCreditRequiresConfiguredUsage(t *testing.T) {
 	}}
 	cfg := testConfig()
 	cfg.ResetCredit.Enabled = true
-	cfg.ResetCredit.MinimumUsedPercent = 90
-	cfg.ResetExpiresWithinDuration = 2 * time.Hour
+	cfg.ResetRedeemBeforeDuration = 10 * time.Minute
 	current := keeperstate.New()
-	limits := codex.RateLimitsResponse{
-		RateLimits: codex.RateLimitSnapshot{
-			Secondary: &codex.RateLimitWindow{UsedPercent: 50},
-		},
-		RateLimitResetCredits: &codex.ResetCreditsSummary{
-			AvailableCount: 1,
-			Credits:        &credits,
-		},
-	}
-
-	result := Evaluate(now, cfg, limits, &current)
-	if result.CreditAction != nil || len(current.PendingCredits) != 0 {
-		t.Fatal("expected low usage to block reset-credit redemption")
-	}
-}
-
-func TestSkippedCreditIsNotRearmed(t *testing.T) {
-	now := time.Now()
-	expiresAt := now.Add(time.Hour).Unix()
-	credit := codex.ResetCredit{
-		ID:        "skipped-credit",
-		Status:    "available",
-		ExpiresAt: &expiresAt,
-	}
-	credits := []codex.ResetCredit{credit}
-	cfg := testConfig()
-	cfg.ResetCredit.Enabled = true
-	cfg.ResetExpiresWithinDuration = 2 * time.Hour
-	cfg.ResetCredit.MinimumUsedPercent = 90
-	current := keeperstate.New()
-	current.SkippedCredits[CreditHash(credit.ID)] = now
 	limits := codex.RateLimitsResponse{
 		RateLimits: codex.RateLimitSnapshot{
 			Secondary: &codex.RateLimitWindow{UsedPercent: 100},
@@ -163,8 +109,60 @@ func TestSkippedCreditIsNotRearmed(t *testing.T) {
 	}
 
 	result := Evaluate(now, cfg, limits, &current)
-	if result.CreditPending != nil || result.CreditAction != nil {
-		t.Fatal("expected a skipped credit to remain skipped")
+	if result.CreditAction != nil {
+		t.Fatal("expected a credit with more than ten minutes remaining to be left for manual use")
+	}
+}
+
+func TestCreditWaitsAtExactExpiryThreshold(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(10 * time.Minute).Unix()
+	credits := []codex.ResetCredit{{
+		ID:        "threshold-credit",
+		Status:    "available",
+		ExpiresAt: &expiresAt,
+	}}
+	cfg := testConfig()
+	cfg.ResetCredit.Enabled = true
+	cfg.ResetRedeemBeforeDuration = 10 * time.Minute
+	current := keeperstate.New()
+	limits := codex.RateLimitsResponse{
+		RateLimitResetCredits: &codex.ResetCreditsSummary{
+			AvailableCount: 1,
+			Credits:        &credits,
+		},
+	}
+
+	result := Evaluate(now, cfg, limits, &current)
+	if result.CreditAction != nil {
+		t.Fatal("expected redemption only when remaining time is less than the threshold")
+	}
+}
+
+func TestRedeemedCreditIsNotRedeemedAgain(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(9 * time.Minute).Unix()
+	credit := codex.ResetCredit{
+		ID:        "expiring-credit",
+		Status:    "available",
+		ExpiresAt: &expiresAt,
+	}
+	credits := []codex.ResetCredit{credit}
+	cfg := testConfig()
+	cfg.ResetCredit.Enabled = true
+	cfg.ResetRedeemBeforeDuration = 10 * time.Minute
+	current := keeperstate.New()
+	current.RedeemedCredits[CreditHash(credit.ID)] = now
+	limits := codex.RateLimitsResponse{
+		RateLimitResetCredits: &codex.ResetCreditsSummary{
+			AvailableCount: 1,
+			Credits:        &credits,
+		},
+	}
+
+	result := Evaluate(now, cfg, limits, &current)
+	if result.CreditAction != nil {
+		t.Fatal("expected an already redeemed credit to remain ignored")
 	}
 }
 

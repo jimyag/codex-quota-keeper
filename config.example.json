@@ -16,10 +16,7 @@
   },
   "reset_credit": {
     "enabled": false,
-    "expires_within": "2h",
-    "grace_period": "10m",
-    "usage_window": "secondary",
-    "minimum_used_percent": 90,
+    "redeem_before_expiry": "10m",
     "auth_file": "~/.codex/auth.json",
     "base_url": "https://chatgpt.com/backend-api",
     "request_timeout": "20s"

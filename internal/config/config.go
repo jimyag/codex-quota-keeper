@@ -27,10 +27,7 @@ type WindowConfig struct {
 
 type ResetCreditConfig struct {
 	Enabled            bool   `json:"enabled"`
-	ExpiresWithin      string `json:"expires_within"`
-	GracePeriod        string `json:"grace_period"`
-	UsageWindow        string `json:"usage_window"`
-	MinimumUsedPercent int    `json:"minimum_used_percent"`
+	RedeemBeforeExpiry string `json:"redeem_before_expiry"`
 	AuthFile           string `json:"auth_file"`
 	BaseURL            string `json:"base_url"`
 	RequestTimeout     string `json:"request_timeout"`
@@ -40,8 +37,7 @@ type Runtime struct {
 	Config
 	FetchTimeoutDuration        time.Duration
 	WindowTimeoutDuration       time.Duration
-	ResetExpiresWithinDuration  time.Duration
-	ResetGracePeriodDuration    time.Duration
+	ResetRedeemBeforeDuration   time.Duration
 	ResetRequestTimeoutDuration time.Duration
 }
 
@@ -68,10 +64,7 @@ func Defaults() Config {
 		},
 		ResetCredit: ResetCreditConfig{
 			Enabled:            false,
-			ExpiresWithin:      "2h",
-			GracePeriod:        "10m",
-			UsageWindow:        "secondary",
-			MinimumUsedPercent: 90,
+			RedeemBeforeExpiry: "10m",
 			AuthFile:           "~/.codex/auth.json",
 			BaseURL:            "https://chatgpt.com/backend-api",
 			RequestTimeout:     "20s",
@@ -130,14 +123,6 @@ func (c Config) runtime() (Runtime, error) {
 	if len(c.Window.Command) == 0 {
 		return Runtime{}, errors.New("window_starter.command must not be empty")
 	}
-	if c.ResetCredit.MinimumUsedPercent < 0 || c.ResetCredit.MinimumUsedPercent > 100 {
-		return Runtime{}, errors.New("reset_credit.minimum_used_percent must be between 0 and 100")
-	}
-	switch c.ResetCredit.UsageWindow {
-	case "primary", "secondary", "either":
-	default:
-		return Runtime{}, errors.New("reset_credit.usage_window must be primary, secondary, or either")
-	}
 	if _, _, err := ParseWorkingHours(c.Window.WorkingHours); err != nil {
 		return Runtime{}, err
 	}
@@ -150,11 +135,10 @@ func (c Config) runtime() (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	expiresWithin, err := positiveDuration("reset_credit.expires_within", c.ResetCredit.ExpiresWithin)
-	if err != nil {
-		return Runtime{}, err
-	}
-	gracePeriod, err := nonNegativeDuration("reset_credit.grace_period", c.ResetCredit.GracePeriod)
+	redeemBeforeExpiry, err := positiveDuration(
+		"reset_credit.redeem_before_expiry",
+		c.ResetCredit.RedeemBeforeExpiry,
+	)
 	if err != nil {
 		return Runtime{}, err
 	}
@@ -182,8 +166,7 @@ func (c Config) runtime() (Runtime, error) {
 		Config:                      c,
 		FetchTimeoutDuration:        fetchTimeout,
 		WindowTimeoutDuration:       windowTimeout,
-		ResetExpiresWithinDuration:  expiresWithin,
-		ResetGracePeriodDuration:    gracePeriod,
+		ResetRedeemBeforeDuration:   redeemBeforeExpiry,
 		ResetRequestTimeoutDuration: requestTimeout,
 	}, nil
 }
@@ -233,17 +216,6 @@ func positiveDuration(name, value string) (time.Duration, error) {
 	}
 	if duration <= 0 {
 		return 0, fmt.Errorf("%s must be positive", name)
-	}
-	return duration, nil
-}
-
-func nonNegativeDuration(name, value string) (time.Duration, error) {
-	duration, err := time.ParseDuration(value)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", name, err)
-	}
-	if duration < 0 {
-		return 0, fmt.Errorf("%s must not be negative", name)
 	}
 	return duration, nil
 }

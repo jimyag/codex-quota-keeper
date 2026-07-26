@@ -13,10 +13,9 @@ import (
 )
 
 type Result struct {
-	WindowAction  *WindowAction  `json:"window_action,omitempty"`
-	CreditPending *CreditPending `json:"credit_pending,omitempty"`
-	CreditAction  *CreditAction  `json:"credit_action,omitempty"`
-	Messages      []string       `json:"messages"`
+	WindowAction *WindowAction `json:"window_action,omitempty"`
+	CreditAction *CreditAction `json:"credit_action,omitempty"`
+	Messages     []string      `json:"messages"`
 }
 
 type WindowAction struct {
@@ -25,16 +24,9 @@ type WindowAction struct {
 }
 
 type CreditAction struct {
-	Credit      codex.ResetCredit `json:"-"`
-	CreditHash  string            `json:"credit_hash"`
-	ExpiresAt   time.Time         `json:"expires_at"`
-	UsedPercent int               `json:"used_percent"`
-}
-
-type CreditPending struct {
-	CreditHash string    `json:"credit_hash"`
-	ExpiresAt  time.Time `json:"expires_at"`
-	ReadyAt    time.Time `json:"ready_at"`
+	Credit     codex.ResetCredit `json:"-"`
+	CreditHash string            `json:"credit_hash"`
+	ExpiresAt  time.Time         `json:"expires_at"`
 }
 
 func Evaluate(
@@ -56,8 +48,7 @@ func Evaluate(
 	}
 
 	if cfg.ResetCredit.Enabled {
-		pending, action, messages := evaluateCredits(now, cfg, limits, current)
-		result.CreditPending = pending
+		action, messages := evaluateCredits(now, cfg, limits, current)
 		result.CreditAction = action
 		result.Messages = append(result.Messages, messages...)
 	}
@@ -69,7 +60,6 @@ func MarkWindowStarted(current *keeperstate.State, action WindowAction, now time
 }
 
 func MarkCreditRedeemed(current *keeperstate.State, action CreditAction, now time.Time) {
-	delete(current.PendingCredits, action.CreditHash)
 	current.RedeemedCredits[action.CreditHash] = now
 }
 
@@ -120,22 +110,10 @@ func evaluateCredits(
 	cfg config.Runtime,
 	limits codex.RateLimitsResponse,
 	current *keeperstate.State,
-) (*CreditPending, *CreditAction, []string) {
+) (*CreditAction, []string) {
 	summary := limits.RateLimitResetCredits
 	if summary == nil || summary.Credits == nil {
-		return nil, nil, []string{"reset credit: no detailed credit inventory available"}
-	}
-
-	used, available := usedPercent(cfg.ResetCredit.UsageWindow, limits.RateLimits)
-	if !available {
-		return nil, nil, []string{"reset credit: selected usage window is unavailable"}
-	}
-	if used < cfg.ResetCredit.MinimumUsedPercent {
-		return nil, nil, []string{fmt.Sprintf(
-			"reset credit: usage is %d%%, below the %d%% threshold",
-			used,
-			cfg.ResetCredit.MinimumUsedPercent,
-		)}
+		return nil, []string{"reset credit: no detailed credit inventory available"}
 	}
 
 	credits := append([]codex.ResetCredit(nil), (*summary.Credits)...)
@@ -155,7 +133,7 @@ func evaluateCredits(
 		}
 		expiresAt := time.Unix(*credit.ExpiresAt, 0)
 		untilExpiry := expiresAt.Sub(now)
-		if untilExpiry <= 0 || untilExpiry > cfg.ResetExpiresWithinDuration {
+		if untilExpiry <= 0 || untilExpiry >= cfg.ResetRedeemBeforeDuration {
 			continue
 		}
 
@@ -163,68 +141,17 @@ func evaluateCredits(
 		if _, redeemed := current.RedeemedCredits[hash]; redeemed {
 			continue
 		}
-		if _, skipped := current.SkippedCredits[hash]; skipped {
-			continue
-		}
-		pending, exists := current.PendingCredits[hash]
-		if !exists {
-			current.PendingCredits[hash] = keeperstate.Pending{
-				FirstSeen: now,
-				ExpiresAt: expiresAt,
-			}
-			return &CreditPending{
-					CreditHash: hash,
-					ExpiresAt:  expiresAt,
-					ReadyAt:    now.Add(cfg.ResetGracePeriodDuration),
-				}, nil, []string{fmt.Sprintf(
-					"reset credit %s is eligible and enters a %s grace period",
-					hash,
-					cfg.ResetGracePeriodDuration,
-				)}
-		}
-		if now.Sub(pending.FirstSeen) < cfg.ResetGracePeriodDuration {
-			return nil, nil, []string{fmt.Sprintf(
-				"reset credit %s is pending; grace period ends in %s",
+		return &CreditAction{
+				Credit:     credit,
+				CreditHash: hash,
+				ExpiresAt:  expiresAt,
+			}, []string{fmt.Sprintf(
+				"reset credit %s expires in %s; redeeming to avoid wasting it",
 				hash,
-				cfg.ResetGracePeriodDuration-now.Sub(pending.FirstSeen),
+				untilExpiry.Round(time.Second),
 			)}
-		}
-		return nil, &CreditAction{
-			Credit:      credit,
-			CreditHash:  hash,
-			ExpiresAt:   expiresAt,
-			UsedPercent: used,
-		}, nil
 	}
-	return nil, nil, nil
-}
-
-func usedPercent(window string, limits codex.RateLimitSnapshot) (int, bool) {
-	primary, primaryOK := percent(limits.Primary)
-	secondary, secondaryOK := percent(limits.Secondary)
-	switch window {
-	case "primary":
-		return primary, primaryOK
-	case "secondary":
-		return secondary, secondaryOK
-	case "either":
-		switch {
-		case primaryOK && secondaryOK:
-			return max(primary, secondary), true
-		case primaryOK:
-			return primary, true
-		case secondaryOK:
-			return secondary, true
-		}
-	}
-	return 0, false
-}
-
-func percent(window *codex.RateLimitWindow) (int, bool) {
-	if window == nil {
-		return 0, false
-	}
-	return window.UsedPercent, true
+	return nil, nil
 }
 
 func withinWorkingHours(now time.Time, value string) bool {

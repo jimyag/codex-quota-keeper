@@ -15,14 +15,7 @@ import (
 type State struct {
 	LastPrimaryResetAt int64                `json:"last_primary_reset_at,omitempty"`
 	WindowStarted      map[string]time.Time `json:"window_started,omitempty"`
-	PendingCredits     map[string]Pending   `json:"pending_credits,omitempty"`
 	RedeemedCredits    map[string]time.Time `json:"redeemed_credits,omitempty"`
-	SkippedCredits     map[string]time.Time `json:"skipped_credits,omitempty"`
-}
-
-type Pending struct {
-	FirstSeen time.Time `json:"first_seen"`
-	ExpiresAt time.Time `json:"expires_at"`
 }
 
 func Load(path string) (State, error) {
@@ -71,13 +64,7 @@ func (s *State) ensureMaps() {
 	if s.WindowStarted == nil {
 		s.WindowStarted = make(map[string]time.Time)
 	}
-	if s.PendingCredits == nil {
-		s.PendingCredits = make(map[string]Pending)
-	}
 	if s.RedeemedCredits == nil {
 		s.RedeemedCredits = make(map[string]time.Time)
-	}
-	if s.SkippedCredits == nil {
-		s.SkippedCredits = make(map[string]time.Time)
 	}
 }

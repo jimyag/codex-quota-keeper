@@ -11,10 +11,7 @@ func TestSaveAndLoad(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "state.json")
 	input := New()
 	input.LastPrimaryResetAt = 123
-	input.PendingCredits["abc"] = Pending{
-		FirstSeen: time.Unix(100, 0),
-		ExpiresAt: time.Unix(200, 0),
-	}
+	input.RedeemedCredits["abc"] = time.Unix(100, 0)
 
 	if err := input.Save(path); err != nil {
 		t.Fatal(err)
@@ -34,7 +31,7 @@ func TestSaveAndLoad(t *testing.T) {
 	if output.LastPrimaryResetAt != input.LastPrimaryResetAt {
 		t.Fatalf("unexpected reset timestamp: %d", output.LastPrimaryResetAt)
 	}
-	if _, ok := output.PendingCredits["abc"]; !ok {
-		t.Fatal("expected pending credit to survive a round trip")
+	if _, ok := output.RedeemedCredits["abc"]; !ok {
+		t.Fatal("expected redeemed credit to survive a round trip")
 	}
 }

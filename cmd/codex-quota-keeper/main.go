@@ -65,19 +65,6 @@ func newRootCommand() *cobra.Command {
 	runCommand.Flags().BoolVar(&apply, "apply", false, "perform eligible actions")
 	runCommand.Flags().BoolVar(&jsonOutput, "json", false, "print a machine-readable result")
 
-	var cancelPath string
-	var cancelStatePath string
-	cancelCommand := &cobra.Command{
-		Use:   "cancel",
-		Short: "Skip all currently pending reset credits",
-		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return cancelPending(cancelPath, cancelStatePath)
-		},
-	}
-	cancelCommand.Flags().StringVar(&cancelPath, "config", config.DefaultPath(), "configuration file")
-	cancelCommand.Flags().StringVar(&cancelStatePath, "state", "", "override state file")
-
 	versionCommand := &cobra.Command{
 		Use:   "version",
 		Short: "Print the version",
@@ -87,7 +74,7 @@ func newRootCommand() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(initCommand, runCommand, cancelCommand, versionCommand)
+	root.AddCommand(initCommand, runCommand, versionCommand)
 	return root
 }
 
@@ -147,18 +134,6 @@ func runOnce(path, statePath string, apply, jsonOutput bool) error {
 	result := policy.Evaluate(now, cfg, limits, &current)
 	actionLog := make([]string, 0, 2)
 
-	if result.CreditPending != nil {
-		pending := result.CreditPending
-		_ = notify.Send(
-			"Codex reset credit pending",
-			fmt.Sprintf(
-				"Credit %s becomes eligible at %s. Run codex-quota-keeper cancel to skip it.",
-				pending.CreditHash,
-				pending.ReadyAt.Format(time.Kitchen),
-			),
-		)
-	}
-
 	if result.WindowAction != nil {
 		if !apply {
 			actionLog = append(actionLog, "dry-run: would open a new Codex primary window")
@@ -176,7 +151,7 @@ func runOnce(path, statePath string, apply, jsonOutput bool) error {
 		action := *result.CreditAction
 		if !apply {
 			actionLog = append(actionLog, fmt.Sprintf(
-				"dry-run: would redeem reset credit %s before %s",
+				"dry-run: would redeem reset credit %s before %s to avoid wasting it",
 				action.CreditHash,
 				action.ExpiresAt.Format(time.RFC3339),
 			))
@@ -198,7 +173,7 @@ func runOnce(path, statePath string, apply, jsonOutput bool) error {
 			}
 			policy.MarkCreditRedeemed(&current, action, now)
 			actionLog = append(actionLog, fmt.Sprintf(
-				"redeemed reset credit %s; windows_reset=%d",
+				"redeemed expiring reset credit %s; windows_reset=%d",
 				action.CreditHash,
 				consumeResult.WindowsReset,
 			))
@@ -214,35 +189,6 @@ func runOnce(path, statePath string, apply, jsonOutput bool) error {
 		return printJSON(now, apply, limits, result, actionLog)
 	}
 	printHuman(now, apply, limits, result, actionLog)
-	return nil
-}
-
-func cancelPending(path, statePath string) error {
-	cfg, err := config.Load(path)
-	if err != nil {
-		return err
-	}
-	if statePath != "" {
-		expanded, err := config.ExpandPath(statePath)
-		if err != nil {
-			return err
-		}
-		cfg.StateFile = expanded
-	}
-	current, err := keeperstate.Load(cfg.StateFile)
-	if err != nil {
-		return err
-	}
-	count := len(current.PendingCredits)
-	now := time.Now()
-	for hash := range current.PendingCredits {
-		current.SkippedCredits[hash] = now
-	}
-	current.PendingCredits = make(map[string]keeperstate.Pending)
-	if err := current.Save(cfg.StateFile); err != nil {
-		return err
-	}
-	fmt.Printf("cancelled and skipped %d pending reset credit action(s)\n", count)
 	return nil
 }
 
