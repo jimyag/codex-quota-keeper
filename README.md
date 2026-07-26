@@ -47,6 +47,17 @@ After downloading on Linux or macOS, make the binary executable with
 go install github.com/jimyag/codex-quota-keeper/cmd/codex-quota-keeper@latest
 ```
 
+For a local development build, install
+[`Task`](https://taskfile.dev/installation/) and run:
+
+```bash
+task build
+./bin/codex-quota-keeper version
+```
+
+Use `task release-snapshot` to build all release targets locally without
+publishing them.
+
 Version information is provided by
 [`jimmicro/version`](https://github.com/jimmicro/version):
 
