@@ -1,6 +1,8 @@
 package config
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,6 +20,16 @@ func TestDefaultRedeemBeforeExpiry(t *testing.T) {
 	}
 	if runtime.ScanIntervalDuration != 10*time.Minute {
 		t.Fatalf("expected a 10-minute scan interval, got %s", runtime.ScanIntervalDuration)
+	}
+}
+
+func TestDefaultsDoNotIncludeEnabledSwitch(t *testing.T) {
+	data, err := json.Marshal(Defaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"enabled"`) {
+		t.Fatalf("default config must not contain an enabled switch: %s", data)
 	}
 }
 

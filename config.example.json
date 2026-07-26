@@ -2,7 +2,6 @@
   "scan_interval": "10m",
   "state_file": "~/.local/state/codex-quota-keeper/state.json",
   "reset_credit": {
-    "enabled": false,
     "redeem_before_expiry": "10m",
     "auth_file": "~/.codex/auth.json",
     "base_url": "https://chatgpt.com/backend-api",

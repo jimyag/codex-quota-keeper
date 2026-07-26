@@ -132,7 +132,7 @@ func initConfig(path string) error {
 		return err
 	}
 	fmt.Printf("created %s\n", written)
-	fmt.Println("set reset_credit.enabled to true, then run codex-quota-keeper run --apply")
+	fmt.Println("run codex-quota-keeper run to inspect credits; add --apply to redeem")
 	return nil
 }
 
@@ -191,48 +191,42 @@ func scanOnce(
 	}
 
 	now := time.Now()
-	result := policy.Result{}
-	var credits *codex.ResetCreditsSummary
 	actionLog := make([]string, 0, 1)
 
-	if !cfg.ResetCredit.Enabled {
-		result.Messages = append(result.Messages, "reset credit: automatic redemption is disabled")
-	} else {
-		credits, err = listResetCredits(ctx, cfg)
-		if err != nil {
-			return cfg.ScanIntervalDuration, err
-		}
-		current, err := keeperstate.Load(cfg.StateFile)
-		if err != nil {
-			return cfg.ScanIntervalDuration, err
-		}
-		result = policy.Evaluate(now, cfg.ResetRedeemBeforeDuration, credits, &current)
+	credits, err := listResetCredits(ctx, cfg)
+	if err != nil {
+		return cfg.ScanIntervalDuration, err
+	}
+	current, err := keeperstate.Load(cfg.StateFile)
+	if err != nil {
+		return cfg.ScanIntervalDuration, err
+	}
+	result := policy.Evaluate(now, cfg.ResetRedeemBeforeDuration, credits, &current)
 
-		if result.CreditAction != nil {
-			action := *result.CreditAction
-			if !apply {
-				actionLog = append(actionLog, fmt.Sprintf(
-					"redeem reset credit %s before %s",
-					action.CreditHash,
-					action.ExpiresAt.Format(time.RFC3339),
-				))
-			} else {
-				consumeResult, err := consumeResetCredit(ctx, cfg, action.Credit.ID)
-				if err != nil {
-					return cfg.ScanIntervalDuration, err
-				}
-				policy.MarkCreditRedeemed(&current, action, now)
-				actionLog = append(actionLog, fmt.Sprintf(
-					"redeemed expiring reset credit %s; windows_reset=%d",
-					action.CreditHash,
-					consumeResult.WindowsReset,
-				))
+	if result.CreditAction != nil {
+		action := *result.CreditAction
+		if !apply {
+			actionLog = append(actionLog, fmt.Sprintf(
+				"redeem reset credit %s before %s",
+				action.CreditHash,
+				action.ExpiresAt.Format(time.RFC3339),
+			))
+		} else {
+			consumeResult, err := consumeResetCredit(ctx, cfg, action.Credit.ID)
+			if err != nil {
+				return cfg.ScanIntervalDuration, err
 			}
+			policy.MarkCreditRedeemed(&current, action, now)
+			actionLog = append(actionLog, fmt.Sprintf(
+				"redeemed expiring reset credit %s; windows_reset=%d",
+				action.CreditHash,
+				consumeResult.WindowsReset,
+			))
 		}
+	}
 
-		if err := current.Save(cfg.StateFile); err != nil {
-			return cfg.ScanIntervalDuration, err
-		}
+	if err := current.Save(cfg.StateFile); err != nil {
+		return cfg.ScanIntervalDuration, err
 	}
 
 	if jsonOutput {

@@ -17,7 +17,6 @@ type Config struct {
 }
 
 type ResetCreditConfig struct {
-	Enabled            bool   `json:"enabled"`
 	RedeemBeforeExpiry string `json:"redeem_before_expiry"`
 	AuthFile           string `json:"auth_file"`
 	BaseURL            string `json:"base_url"`
@@ -40,7 +39,6 @@ func Defaults() Config {
 		ScanInterval: "10m",
 		StateFile:    "~/.local/state/codex-quota-keeper/state.json",
 		ResetCredit: ResetCreditConfig{
-			Enabled:            false,
 			RedeemBeforeExpiry: "10m",
 			AuthFile:           "~/.codex/auth.json",
 			BaseURL:            "https://chatgpt.com/backend-api",

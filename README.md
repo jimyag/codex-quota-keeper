@@ -13,8 +13,8 @@ usage and does not start Codex usage windows.
 
 ## Safety model
 
-- Automatic redemption is disabled by default.
-- Both `reset_credit.enabled` and `run --apply` are required.
+- Automatic redemption requires `run --apply`.
+- Running without `--apply` only inspects Credits and reports decisions.
 - Credits are eligible only when they have less than
   `redeem_before_expiry` remaining.
 - A hash of each redeemed Credit ID is stored locally to avoid duplicate
@@ -23,8 +23,8 @@ usage and does not start Codex usage windows.
 - Logs and JSON output contain hashes instead of raw Credit IDs.
 
 Reset Credit redemption calls an undocumented ChatGPT backend endpoint and
-consumes a finite account credit. The endpoint can change without notice. Keep
-dry-run enabled until you have reviewed several scans.
+consumes a finite account credit. The endpoint can change without notice. Run
+without `--apply` until you have reviewed several scans.
 
 ## Requirements
 
@@ -70,7 +70,6 @@ This writes `~/.config/codex-quota-keeper/config.json`:
   "scan_interval": "10m",
   "state_file": "~/.local/state/codex-quota-keeper/state.json",
   "reset_credit": {
-    "enabled": false,
     "redeem_before_expiry": "10m",
     "auth_file": "~/.codex/auth.json",
     "base_url": "https://chatgpt.com/backend-api",
@@ -78,8 +77,6 @@ This writes `~/.config/codex-quota-keeper/config.json`:
   }
 }
 ```
-
-Set `enabled` to `true` only after reviewing dry-run output.
 
 ## Run continuously
 
@@ -118,12 +115,6 @@ With the default threshold:
 - Less than 10 minutes remaining: redeem it when `--apply` is present.
 
 ## Process management
-
-Edit the configuration and set:
-
-```json
-"enabled": true
-```
 
 Start the continuous worker:
 

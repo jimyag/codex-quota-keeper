@@ -16,7 +16,7 @@ func TestPrintHumanWritesOneConsoleLine(t *testing.T) {
 		time.Date(2026, 7, 26, 23, 43, 46, 0, time.FixedZone("CST", 8*60*60)),
 		false,
 		nil,
-		policy.Result{Messages: []string{"automatic redemption is disabled"}},
+		policy.Result{Messages: []string{"no credit expires soon"}},
 		nil,
 	)
 
@@ -30,7 +30,7 @@ func TestPrintHumanWritesOneConsoleLine(t *testing.T) {
 		"available=unknown",
 		"next_expiry=none",
 		"action=none",
-		`info="automatic redemption is disabled"`,
+		`info="no credit expires soon"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected log output to contain %q, got %q", want, got)
