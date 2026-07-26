@@ -1,0 +1,27 @@
+{
+  "codex_binary": "codex",
+  "state_file": "~/.local/state/codex-quota-keeper/state.json",
+  "fetch_timeout": "20s",
+  "window_starter": {
+    "enabled": false,
+    "working_hours": "09:00-23:00",
+    "command": [
+      "codex",
+      "exec",
+      "--skip-git-repo-check",
+      "--ephemeral",
+      "Reply exactly OK."
+    ],
+    "timeout": "2m"
+  },
+  "reset_credit": {
+    "enabled": false,
+    "expires_within": "2h",
+    "grace_period": "10m",
+    "usage_window": "secondary",
+    "minimum_used_percent": 90,
+    "auth_file": "~/.codex/auth.json",
+    "base_url": "https://chatgpt.com/backend-api",
+    "request_timeout": "20s"
+  }
+}
