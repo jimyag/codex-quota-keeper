@@ -156,7 +156,7 @@ func loadAuth(path string) (authFile, error) {
 	}
 	if auth.Tokens.AccessToken == "" || auth.Tokens.AccountID == "" {
 		return authFile{}, fmt.Errorf(
-			"Codex auth file must contain tokens.access_token and tokens.account_id",
+			"codex auth file must contain tokens.access_token and tokens.account_id",
 		)
 	}
 	return auth, nil

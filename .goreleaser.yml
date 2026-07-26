@@ -1,0 +1,45 @@
+version: 2
+
+project_name: codex-quota-keeper
+
+builds:
+  - id: codex-quota-keeper
+    main: ./cmd/codex-quota-keeper/main.go
+    binary: codex-quota-keeper
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+      - -buildvcs=true
+    ldflags:
+      - -s -w
+      - -X 'github.com/jimmicro/version.GitTag={{.Tag}}'
+      - -X 'github.com/jimmicro/version.BuildTime={{.Date}}'
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    files:
+      - none*
+
+release:
+  github:
+    owner: jimyag
+    name: codex-quota-keeper
+  mode: replace
+
+changelog:
+  use: github-native

@@ -1,5 +1,10 @@
 # codex-quota-keeper
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/jimyag/codex-quota-keeper)](https://goreportcard.com/report/github.com/jimyag/codex-quota-keeper)
+[![codecov](https://codecov.io/gh/jimyag/codex-quota-keeper/branch/main/graph/badge.svg)](https://codecov.io/gh/jimyag/codex-quota-keeper)
+[![License](https://img.shields.io/github/license/jimyag/codex-quota-keeper)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/jimyag/codex-quota-keeper)](https://github.com/jimyag/codex-quota-keeper/releases)
+
 A small local daemon-friendly CLI for two opt-in Codex quota automations:
 
 1. Open a new five-hour usage window after the previously observed window expires.
@@ -30,11 +35,32 @@ Reset-credit redemption is different from normal usage monitoring: it calls an u
 
 Usage monitoring and window starting still work when automatic redemption is disabled.
 
+## Install
+
+Download a binary for Linux, macOS, or Windows from
+[GitHub Releases](https://github.com/jimyag/codex-quota-keeper/releases), or install
+from source:
+
+```bash
+go install github.com/jimyag/codex-quota-keeper/cmd/codex-quota-keeper@latest
+```
+
 ## Build
 
 ```bash
 go build -o bin/codex-quota-keeper ./cmd/codex-quota-keeper
 ```
+
+Version information is provided by
+[`jimmicro/version`](https://github.com/jimmicro/version):
+
+```bash
+bin/codex-quota-keeper version
+bin/codex-quota-keeper --version
+```
+
+Pushing a `v*` tag runs GoReleaser and publishes archives for Linux, macOS, and
+Windows on amd64 and arm64.
 
 ## Initialize
 

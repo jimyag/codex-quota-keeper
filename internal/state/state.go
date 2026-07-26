@@ -1,6 +1,7 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/google/renameio/v2"
+	"github.com/natefinch/atomic"
 )
 
 type State struct {
@@ -57,8 +58,11 @@ func (s *State) Save(path string) error {
 	}
 	data = append(data, '\n')
 
-	if err := renameio.WriteFile(path, data, 0o600); err != nil {
+	if err := atomic.WriteFile(path, bytes.NewReader(data)); err != nil {
 		return fmt.Errorf("atomically replace state: %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("set state permissions: %w", err)
 	}
 	return nil
 }

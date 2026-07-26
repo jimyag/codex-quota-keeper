@@ -4,8 +4,9 @@ go 1.26
 
 require (
 	github.com/gen2brain/beeep v0.11.2
-	github.com/google/renameio/v2 v2.0.2
 	github.com/google/uuid v1.6.0
+	github.com/jimmicro/version v1.1.0
+	github.com/natefinch/atomic v1.0.1
 	github.com/spf13/cobra v1.10.2
 )
 

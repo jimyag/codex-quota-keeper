@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	appversion "github.com/jimmicro/version"
 	"github.com/spf13/cobra"
 
 	"github.com/jimyag/codex-quota-keeper/internal/codex"
@@ -17,8 +18,6 @@ import (
 	"github.com/jimyag/codex-quota-keeper/internal/runner"
 	keeperstate "github.com/jimyag/codex-quota-keeper/internal/state"
 )
-
-var version = "dev"
 
 func main() {
 	log.SetFlags(log.LstdFlags)
@@ -34,7 +33,7 @@ func newRootCommand() *cobra.Command {
 		Short:         "Manage Codex rolling windows and expiring reset credits",
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		Version:       version,
+		Version:       appversion.Version(),
 	}
 
 	var initPath string
@@ -84,7 +83,7 @@ func newRootCommand() *cobra.Command {
 		Short: "Print the version",
 		Args:  cobra.NoArgs,
 		Run: func(_ *cobra.Command, _ []string) {
-			fmt.Println(version)
+			fmt.Println(appversion.Version())
 		},
 	}
 
