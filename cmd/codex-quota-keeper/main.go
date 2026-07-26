@@ -13,9 +13,7 @@ import (
 
 	"github.com/jimyag/codex-quota-keeper/internal/codex"
 	"github.com/jimyag/codex-quota-keeper/internal/config"
-	"github.com/jimyag/codex-quota-keeper/internal/notify"
 	"github.com/jimyag/codex-quota-keeper/internal/policy"
-	"github.com/jimyag/codex-quota-keeper/internal/runner"
 	keeperstate "github.com/jimyag/codex-quota-keeper/internal/state"
 )
 
@@ -30,7 +28,7 @@ func main() {
 func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "codex-quota-keeper",
-		Short:         "Manage Codex rolling windows and expiring reset credits",
+		Short:         "Redeem Codex reset credits before they expire",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Version:       appversion.Version(),
@@ -53,8 +51,8 @@ func newRootCommand() *cobra.Command {
 	var jsonOutput bool
 	runCommand := &cobra.Command{
 		Use:   "run",
-		Short: "Evaluate quota policies once",
-		Long:  "Evaluate quota policies once. The command is a dry-run unless --apply is provided.",
+		Short: "Scan reset credits once",
+		Long:  "Scan reset credits once. The command is a dry-run unless --apply is provided.",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runOnce(runPath, runStatePath, apply, jsonOutput)
@@ -62,7 +60,7 @@ func newRootCommand() *cobra.Command {
 	}
 	runCommand.Flags().StringVar(&runPath, "config", config.DefaultPath(), "configuration file")
 	runCommand.Flags().StringVar(&runStatePath, "state", "", "override state file")
-	runCommand.Flags().BoolVar(&apply, "apply", false, "perform eligible actions")
+	runCommand.Flags().BoolVar(&apply, "apply", false, "redeem eligible reset credits")
 	runCommand.Flags().BoolVar(&jsonOutput, "json", false, "print a machine-readable result")
 
 	versionCommand := &cobra.Command{
@@ -84,7 +82,7 @@ func initConfig(path string) error {
 		return err
 	}
 	fmt.Printf("created %s\n", written)
-	fmt.Println("both automatic actions are disabled by default")
+	fmt.Println("automatic reset-credit redemption is disabled by default")
 	return nil
 }
 
@@ -100,102 +98,86 @@ func runOnce(path, statePath string, apply, jsonOutput bool) error {
 		}
 		cfg.StateFile = expanded
 	}
-	current, err := keeperstate.Load(cfg.StateFile)
-	if err != nil {
-		return err
-	}
 
-	fetchCtx, cancelFetch := context.WithTimeout(context.Background(), cfg.FetchTimeoutDuration)
-	limits, err := codex.ReadRateLimits(fetchCtx, cfg.CodexBinary)
-	cancelFetch()
-	if err != nil {
-		return err
-	}
-	if cfg.ResetCredit.Enabled &&
-		(limits.RateLimitResetCredits == nil || limits.RateLimitResetCredits.Credits == nil) {
-		creditCtx, cancelCredits := context.WithTimeout(
-			context.Background(),
-			cfg.ResetRequestTimeoutDuration,
-		)
-		details, err := codex.ListResetCredits(
-			creditCtx,
-			cfg.ResetCredit.AuthFile,
-			cfg.ResetCredit.BaseURL,
-			cfg.ResetRequestTimeoutDuration,
-		)
-		cancelCredits()
+	now := time.Now()
+	result := policy.Result{}
+	var credits *codex.ResetCreditsSummary
+	actionLog := make([]string, 0, 1)
+
+	if !cfg.ResetCredit.Enabled {
+		result.Messages = append(result.Messages, "reset credit: automatic redemption is disabled")
+	} else {
+		credits, err = listResetCredits(cfg)
 		if err != nil {
 			return err
 		}
-		limits.RateLimitResetCredits = details
-	}
-
-	now := time.Now()
-	result := policy.Evaluate(now, cfg, limits, &current)
-	actionLog := make([]string, 0, 2)
-
-	if result.WindowAction != nil {
-		if !apply {
-			actionLog = append(actionLog, "dry-run: would open a new Codex primary window")
-		} else {
-			if err := runner.Run(context.Background(), cfg.Window.Command, cfg.WindowTimeoutDuration); err != nil {
-				return err
-			}
-			policy.MarkWindowStarted(&current, *result.WindowAction, now)
-			actionLog = append(actionLog, "opened a new Codex primary window")
-			_ = notify.Send("Codex Quota Keeper", "Opened a new Codex usage window.")
+		current, err := keeperstate.Load(cfg.StateFile)
+		if err != nil {
+			return err
 		}
-	}
+		result = policy.Evaluate(now, cfg.ResetRedeemBeforeDuration, credits, &current)
 
-	if result.CreditAction != nil {
-		action := *result.CreditAction
-		if !apply {
-			actionLog = append(actionLog, fmt.Sprintf(
-				"dry-run: would redeem reset credit %s before %s to avoid wasting it",
-				action.CreditHash,
-				action.ExpiresAt.Format(time.RFC3339),
-			))
-		} else {
-			consumeCtx, cancelConsume := context.WithTimeout(
-				context.Background(),
-				cfg.ResetRequestTimeoutDuration,
-			)
-			consumeResult, err := codex.ConsumeResetCredit(
-				consumeCtx,
-				cfg.ResetCredit.AuthFile,
-				cfg.ResetCredit.BaseURL,
-				action.Credit.ID,
-				cfg.ResetRequestTimeoutDuration,
-			)
-			cancelConsume()
-			if err != nil {
-				return err
+		if result.CreditAction != nil {
+			action := *result.CreditAction
+			if !apply {
+				actionLog = append(actionLog, fmt.Sprintf(
+					"dry-run: would redeem reset credit %s before %s to avoid wasting it",
+					action.CreditHash,
+					action.ExpiresAt.Format(time.RFC3339),
+				))
+			} else {
+				consumeResult, err := consumeResetCredit(cfg, action.Credit.ID)
+				if err != nil {
+					return err
+				}
+				policy.MarkCreditRedeemed(&current, action, now)
+				actionLog = append(actionLog, fmt.Sprintf(
+					"redeemed expiring reset credit %s; windows_reset=%d",
+					action.CreditHash,
+					consumeResult.WindowsReset,
+				))
 			}
-			policy.MarkCreditRedeemed(&current, action, now)
-			actionLog = append(actionLog, fmt.Sprintf(
-				"redeemed expiring reset credit %s; windows_reset=%d",
-				action.CreditHash,
-				consumeResult.WindowsReset,
-			))
-			_ = notify.Send("Codex Quota Keeper", "Redeemed an expiring Codex reset credit.")
 		}
-	}
 
-	if err := current.Save(cfg.StateFile); err != nil {
-		return err
+		if err := current.Save(cfg.StateFile); err != nil {
+			return err
+		}
 	}
 
 	if jsonOutput {
-		return printJSON(now, apply, limits, result, actionLog)
+		return printJSON(now, apply, credits, result, actionLog)
 	}
-	printHuman(now, apply, limits, result, actionLog)
+	printHuman(now, apply, credits, result, actionLog)
 	return nil
+}
+
+func listResetCredits(cfg config.Runtime) (*codex.ResetCreditsSummary, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.ResetRequestTimeoutDuration)
+	defer cancel()
+	return codex.ListResetCredits(
+		ctx,
+		cfg.ResetCredit.AuthFile,
+		cfg.ResetCredit.BaseURL,
+		cfg.ResetRequestTimeoutDuration,
+	)
+}
+
+func consumeResetCredit(cfg config.Runtime, id string) (codex.ConsumeResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.ResetRequestTimeoutDuration)
+	defer cancel()
+	return codex.ConsumeResetCredit(
+		ctx,
+		cfg.ResetCredit.AuthFile,
+		cfg.ResetCredit.BaseURL,
+		id,
+		cfg.ResetRequestTimeoutDuration,
+	)
 }
 
 func printHuman(
 	now time.Time,
 	apply bool,
-	limits codex.RateLimitsResponse,
+	credits *codex.ResetCreditsSummary,
 	result policy.Result,
 	actionLog []string,
 ) {
@@ -204,16 +186,10 @@ func printHuman(
 		mode = "apply"
 	}
 	fmt.Printf("time: %s\nmode: %s\n", now.Format(time.RFC3339), mode)
-	if limits.RateLimits.Primary != nil {
-		fmt.Printf("primary used: %d%%\n", limits.RateLimits.Primary.UsedPercent)
-	}
-	if limits.RateLimits.Secondary != nil {
-		fmt.Printf("secondary used: %d%%\n", limits.RateLimits.Secondary.UsedPercent)
-	}
-	if limits.RateLimitResetCredits != nil {
-		fmt.Printf("available reset credits: %d\n", limits.RateLimitResetCredits.AvailableCount)
-		if limits.RateLimitResetCredits.Credits != nil {
-			for _, credit := range *limits.RateLimitResetCredits.Credits {
+	if credits != nil {
+		fmt.Printf("available reset credits: %d\n", credits.AvailableCount)
+		if credits.Credits != nil {
+			for _, credit := range *credits.Credits {
 				expiry := "none"
 				if credit.ExpiresAt != nil {
 					expiry = time.Unix(*credit.ExpiresAt, 0).Format(time.RFC3339)
@@ -241,14 +217,10 @@ func printHuman(
 func printJSON(
 	now time.Time,
 	apply bool,
-	limits codex.RateLimitsResponse,
+	credits *codex.ResetCreditsSummary,
 	result policy.Result,
 	actionLog []string,
 ) error {
-	type windowOutput struct {
-		UsedPercent int    `json:"used_percent"`
-		ResetsAt    *int64 `json:"resets_at,omitempty"`
-	}
 	type safeCreditOutput struct {
 		Hash      string `json:"hash"`
 		Status    string `json:"status"`
@@ -258,53 +230,32 @@ func printJSON(
 		AvailableCount int64              `json:"available_count"`
 		Credits        []safeCreditOutput `json:"credits,omitempty"`
 	}
-	type limitsOutput struct {
-		Primary     *windowOutput      `json:"primary,omitempty"`
-		Secondary   *windowOutput      `json:"secondary,omitempty"`
-		ResetCredit *resetCreditOutput `json:"reset_credit,omitempty"`
-	}
-	safeLimits := limitsOutput{}
-	if limits.RateLimits.Primary != nil {
-		safeLimits.Primary = &windowOutput{
-			UsedPercent: limits.RateLimits.Primary.UsedPercent,
-			ResetsAt:    limits.RateLimits.Primary.ResetsAt,
-		}
-	}
-	if limits.RateLimits.Secondary != nil {
-		safeLimits.Secondary = &windowOutput{
-			UsedPercent: limits.RateLimits.Secondary.UsedPercent,
-			ResetsAt:    limits.RateLimits.Secondary.ResetsAt,
-		}
-	}
-	if limits.RateLimitResetCredits != nil {
-		safeLimits.ResetCredit = &resetCreditOutput{
-			AvailableCount: limits.RateLimitResetCredits.AvailableCount,
-		}
-		if limits.RateLimitResetCredits.Credits != nil {
-			for _, credit := range *limits.RateLimitResetCredits.Credits {
-				safeLimits.ResetCredit.Credits = append(
-					safeLimits.ResetCredit.Credits,
-					safeCreditOutput{
-						Hash:      policy.CreditHash(credit.ID),
-						Status:    credit.Status,
-						ExpiresAt: credit.ExpiresAt,
-					},
-				)
+
+	var safeCredits *resetCreditOutput
+	if credits != nil {
+		safeCredits = &resetCreditOutput{AvailableCount: credits.AvailableCount}
+		if credits.Credits != nil {
+			for _, credit := range *credits.Credits {
+				safeCredits.Credits = append(safeCredits.Credits, safeCreditOutput{
+					Hash:      policy.CreditHash(credit.ID),
+					Status:    credit.Status,
+					ExpiresAt: credit.ExpiresAt,
+				})
 			}
 		}
 	}
 	output := struct {
-		Time     time.Time     `json:"time"`
-		Apply    bool          `json:"apply"`
-		Limits   limitsOutput  `json:"limits"`
-		Decision policy.Result `json:"decision"`
-		Actions  []string      `json:"actions"`
+		Time        time.Time          `json:"time"`
+		Apply       bool               `json:"apply"`
+		ResetCredit *resetCreditOutput `json:"reset_credit,omitempty"`
+		Decision    policy.Result      `json:"decision"`
+		Actions     []string           `json:"actions"`
 	}{
-		Time:     now,
-		Apply:    apply,
-		Limits:   safeLimits,
-		Decision: result,
-		Actions:  actionLog,
+		Time:        now,
+		Apply:       apply,
+		ResetCredit: safeCredits,
+		Decision:    result,
+		Actions:     actionLog,
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")

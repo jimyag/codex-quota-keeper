@@ -10,7 +10,6 @@ import (
 func TestSaveAndLoad(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "state.json")
 	input := New()
-	input.LastPrimaryResetAt = 123
 	input.RedeemedCredits["abc"] = time.Unix(100, 0)
 
 	if err := input.Save(path); err != nil {
@@ -27,9 +26,6 @@ func TestSaveAndLoad(t *testing.T) {
 	output, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if output.LastPrimaryResetAt != input.LastPrimaryResetAt {
-		t.Fatalf("unexpected reset timestamp: %d", output.LastPrimaryResetAt)
 	}
 	if _, ok := output.RedeemedCredits["abc"]; !ok {
 		t.Fatal("expected redeemed credit to survive a round trip")

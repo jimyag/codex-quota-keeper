@@ -13,9 +13,7 @@ import (
 )
 
 type State struct {
-	LastPrimaryResetAt int64                `json:"last_primary_reset_at,omitempty"`
-	WindowStarted      map[string]time.Time `json:"window_started,omitempty"`
-	RedeemedCredits    map[string]time.Time `json:"redeemed_credits,omitempty"`
+	RedeemedCredits map[string]time.Time `json:"redeemed_credits,omitempty"`
 }
 
 func Load(path string) (State, error) {
@@ -61,9 +59,6 @@ func (s *State) Save(path string) error {
 }
 
 func (s *State) ensureMaps() {
-	if s.WindowStarted == nil {
-		s.WindowStarted = make(map[string]time.Time)
-	}
 	if s.RedeemedCredits == nil {
 		s.RedeemedCredits = make(map[string]time.Time)
 	}

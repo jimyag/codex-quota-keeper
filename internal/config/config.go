@@ -11,18 +11,8 @@ import (
 )
 
 type Config struct {
-	CodexBinary  string            `json:"codex_binary"`
-	StateFile    string            `json:"state_file"`
-	FetchTimeout string            `json:"fetch_timeout"`
-	Window       WindowConfig      `json:"window_starter"`
-	ResetCredit  ResetCreditConfig `json:"reset_credit"`
-}
-
-type WindowConfig struct {
-	Enabled      bool     `json:"enabled"`
-	WorkingHours string   `json:"working_hours"`
-	Command      []string `json:"command"`
-	Timeout      string   `json:"timeout"`
+	StateFile   string            `json:"state_file"`
+	ResetCredit ResetCreditConfig `json:"reset_credit"`
 }
 
 type ResetCreditConfig struct {
@@ -35,8 +25,6 @@ type ResetCreditConfig struct {
 
 type Runtime struct {
 	Config
-	FetchTimeoutDuration        time.Duration
-	WindowTimeoutDuration       time.Duration
 	ResetRedeemBeforeDuration   time.Duration
 	ResetRequestTimeoutDuration time.Duration
 }
@@ -47,21 +35,7 @@ func DefaultPath() string {
 
 func Defaults() Config {
 	return Config{
-		CodexBinary:  "codex",
-		StateFile:    "~/.local/state/codex-quota-keeper/state.json",
-		FetchTimeout: "20s",
-		Window: WindowConfig{
-			Enabled:      false,
-			WorkingHours: "09:00-23:00",
-			Command: []string{
-				"codex",
-				"exec",
-				"--skip-git-repo-check",
-				"--ephemeral",
-				"Reply exactly OK.",
-			},
-			Timeout: "2m",
-		},
+		StateFile: "~/.local/state/codex-quota-keeper/state.json",
 		ResetCredit: ResetCreditConfig{
 			Enabled:            false,
 			RedeemBeforeExpiry: "10m",
@@ -117,24 +91,6 @@ func WriteDefault(path string) (string, error) {
 }
 
 func (c Config) runtime() (Runtime, error) {
-	if strings.TrimSpace(c.CodexBinary) == "" {
-		return Runtime{}, errors.New("codex_binary must not be empty")
-	}
-	if len(c.Window.Command) == 0 {
-		return Runtime{}, errors.New("window_starter.command must not be empty")
-	}
-	if _, _, err := ParseWorkingHours(c.Window.WorkingHours); err != nil {
-		return Runtime{}, err
-	}
-
-	fetchTimeout, err := positiveDuration("fetch_timeout", c.FetchTimeout)
-	if err != nil {
-		return Runtime{}, err
-	}
-	windowTimeout, err := positiveDuration("window_starter.timeout", c.Window.Timeout)
-	if err != nil {
-		return Runtime{}, err
-	}
 	redeemBeforeExpiry, err := positiveDuration(
 		"reset_credit.redeem_before_expiry",
 		c.ResetCredit.RedeemBeforeExpiry,
@@ -164,8 +120,6 @@ func (c Config) runtime() (Runtime, error) {
 
 	return Runtime{
 		Config:                      c,
-		FetchTimeoutDuration:        fetchTimeout,
-		WindowTimeoutDuration:       windowTimeout,
 		ResetRedeemBeforeDuration:   redeemBeforeExpiry,
 		ResetRequestTimeoutDuration: requestTimeout,
 	}, nil
@@ -183,30 +137,6 @@ func ExpandPath(path string) (string, error) {
 		return filepath.Join(home, strings.TrimPrefix(path, "~/")), nil
 	}
 	return path, nil
-}
-
-func ParseWorkingHours(value string) (time.Duration, time.Duration, error) {
-	parts := strings.Split(value, "-")
-	if len(parts) != 2 {
-		return 0, 0, errors.New("window_starter.working_hours must use HH:MM-HH:MM")
-	}
-	start, err := clockDuration(parts[0])
-	if err != nil {
-		return 0, 0, fmt.Errorf("invalid working-hours start: %w", err)
-	}
-	end, err := clockDuration(parts[1])
-	if err != nil {
-		return 0, 0, fmt.Errorf("invalid working-hours end: %w", err)
-	}
-	return start, end, nil
-}
-
-func clockDuration(value string) (time.Duration, error) {
-	parsed, err := time.Parse("15:04", value)
-	if err != nil {
-		return 0, err
-	}
-	return time.Duration(parsed.Hour())*time.Hour + time.Duration(parsed.Minute())*time.Minute, nil
 }
 
 func positiveDuration(name, value string) (time.Duration, error) {
