@@ -16,8 +16,8 @@ func TestDefaultRedeemBeforeExpiry(t *testing.T) {
 			runtime.ResetRedeemBeforeDuration,
 		)
 	}
-	if runtime.ScanIntervalDuration != 5*time.Minute {
-		t.Fatalf("expected a 5-minute scan interval, got %s", runtime.ScanIntervalDuration)
+	if runtime.ScanIntervalDuration != 10*time.Minute {
+		t.Fatalf("expected a 10-minute scan interval, got %s", runtime.ScanIntervalDuration)
 	}
 }
 

@@ -37,7 +37,7 @@ func DefaultPath() string {
 
 func Defaults() Config {
 	return Config{
-		ScanInterval: "5m",
+		ScanInterval: "10m",
 		StateFile:    "~/.local/state/codex-quota-keeper/state.json",
 		ResetCredit: ResetCreditConfig{
 			Enabled:            false,

@@ -67,7 +67,7 @@ This writes `~/.config/codex-quota-keeper/config.json`:
 
 ```json
 {
-  "scan_interval": "5m",
+  "scan_interval": "10m",
   "state_file": "~/.local/state/codex-quota-keeper/state.json",
   "reset_credit": {
     "enabled": false,
