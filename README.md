@@ -30,8 +30,6 @@ dry-run enabled until you have reviewed several scans.
 
 - Go 1.26 or later when building from source
 - File-based Codex credentials in `~/.codex/auth.json`
-- A supported service manager such as macOS Launchd or Linux systemd for
-  background installation
 
 If Codex stores credentials in the macOS Keychain instead of `auth.json`,
 automatic redemption is unavailable.
@@ -111,7 +109,7 @@ With the default threshold:
 - 10 minutes or more remaining: leave the Credit for manual use.
 - Less than 10 minutes remaining: redeem it when `--apply` is present.
 
-## Background service
+## Process management
 
 Edit the configuration and set:
 
@@ -119,33 +117,21 @@ Edit the configuration and set:
 "enabled": true
 ```
 
-Then install and start the current binary as a user service:
+Start the continuous worker:
 
 ```bash
-codex-quota-keeper install
+codex-quota-keeper run --apply
 ```
 
-The installed service runs continuously with `--apply`, starts automatically
-after login, and is restarted by the operating system if it exits.
-Place the binary at its final path before installing because the service records
-that absolute path.
+`run` remains in the foreground and exits cleanly on Ctrl-C or SIGTERM. Use an
+external process manager such as launchd, systemd, or supervisord for
+background execution, startup, restart policy, and log rotation.
 
-Manage it with:
+For a simple temporary background run:
 
 ```bash
-codex-quota-keeper status
-codex-quota-keeper stop
-codex-quota-keeper start
-codex-quota-keeper restart
-codex-quota-keeper uninstall
-```
-
-On macOS this is installed as a per-user LaunchAgent. Logs are written beside
-the state file, normally:
-
-```text
-~/.local/state/codex-quota-keeper/com.jimyag.codex-quota-keeper.out.log
-~/.local/state/codex-quota-keeper/com.jimyag.codex-quota-keeper.err.log
+nohup codex-quota-keeper run --apply \
+  >> ~/.local/state/codex-quota-keeper/codex-quota-keeper.log 2>&1 &
 ```
 
 Keep the scan interval shorter than `redeem_before_expiry` so an expiring

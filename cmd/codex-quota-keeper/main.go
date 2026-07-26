@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
+	"os/signal"
+	"syscall"
 	"time"
 
 	appversion "github.com/jimmicro/version"
-	"github.com/kardianos/service"
 	"github.com/spf13/cobra"
 
 	"github.com/jimyag/codex-quota-keeper/internal/codex"
@@ -19,8 +19,6 @@ import (
 	"github.com/jimyag/codex-quota-keeper/internal/policy"
 	keeperstate "github.com/jimyag/codex-quota-keeper/internal/state"
 )
-
-const serviceName = "com.jimyag.codex-quota-keeper"
 
 func main() {
 	log.SetFlags(log.LstdFlags)
@@ -86,38 +84,6 @@ func newRootCommand() *cobra.Command {
 	}
 	addScanFlags(onceCommand, &oncePath, &onceStatePath, &onceApply, &onceJSON)
 
-	var serviceConfigPath string
-	installCommand := serviceControlCommand(
-		"install",
-		"Install and start the background service",
-		&serviceConfigPath,
-	)
-	startCommand := serviceControlCommand(
-		"start",
-		"Start the background service",
-		&serviceConfigPath,
-	)
-	stopCommand := serviceControlCommand(
-		"stop",
-		"Stop the background service",
-		&serviceConfigPath,
-	)
-	restartCommand := serviceControlCommand(
-		"restart",
-		"Restart the background service",
-		&serviceConfigPath,
-	)
-	statusCommand := serviceControlCommand(
-		"status",
-		"Show the background service status",
-		&serviceConfigPath,
-	)
-	uninstallCommand := serviceControlCommand(
-		"uninstall",
-		"Stop and uninstall the background service",
-		&serviceConfigPath,
-	)
-
 	versionCommand := &cobra.Command{
 		Use:   "version",
 		Short: "Print the version",
@@ -131,12 +97,6 @@ func newRootCommand() *cobra.Command {
 		initCommand,
 		runCommand,
 		onceCommand,
-		installCommand,
-		startCommand,
-		stopCommand,
-		restartCommand,
-		statusCommand,
-		uninstallCommand,
 		versionCommand,
 	)
 	return root
@@ -153,78 +113,25 @@ func addScanFlags(
 	command.Flags().BoolVar(jsonOutput, "json", false, "print machine-readable scan results")
 }
 
-func serviceControlCommand(
-	action, description string,
-	configPath *string,
-) *cobra.Command {
-	command := &cobra.Command{
-		Use:   action,
-		Short: description,
-		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return controlService(action, *configPath)
-		},
-	}
-	command.Flags().StringVar(configPath, "config", config.DefaultPath(), "configuration file")
-	return command
-}
-
 func initConfig(path string) error {
 	written, err := config.WriteDefault(path)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("created %s\n", written)
-	fmt.Println("set reset_credit.enabled to true, then run codex-quota-keeper install")
-	return nil
-}
-
-type serviceProgram struct {
-	configPath string
-	statePath  string
-	apply      bool
-	jsonOutput bool
-	cancel     context.CancelFunc
-	done       chan struct{}
-}
-
-func (p *serviceProgram) Start(service.Service) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel
-	p.done = make(chan struct{})
-	go func() {
-		defer close(p.done)
-		runLoop(ctx, p.configPath, p.statePath, p.apply, p.jsonOutput)
-	}()
-	return nil
-}
-
-func (p *serviceProgram) Stop(service.Service) error {
-	if p.cancel == nil {
-		return nil
-	}
-	p.cancel()
-	select {
-	case <-p.done:
-	case <-time.After(5 * time.Second):
-	}
+	fmt.Println("set reset_credit.enabled to true, then run codex-quota-keeper run --apply")
 	return nil
 }
 
 func runContinuously(configPath, statePath string, apply, jsonOutput bool) error {
-	managed, err := newService(
-		configPath,
-		&serviceProgram{
-			configPath: configPath,
-			statePath:  statePath,
-			apply:      apply,
-			jsonOutput: jsonOutput,
-		},
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
 	)
-	if err != nil {
-		return err
-	}
-	return managed.Run()
+	defer stop()
+	runLoop(ctx, configPath, statePath, apply, jsonOutput)
+	return nil
 }
 
 func runLoop(
@@ -351,99 +258,6 @@ func consumeResetCredit(
 		id,
 		cfg.ResetRequestTimeoutDuration,
 	)
-}
-
-func controlService(action, configPath string) error {
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		return err
-	}
-	if action == "install" && !cfg.ResetCredit.Enabled {
-		return errors.New("set reset_credit.enabled to true before installing the service")
-	}
-
-	managed, err := newService(configPath, &serviceProgram{
-		configPath: configPath,
-		apply:      true,
-	})
-	if err != nil {
-		return err
-	}
-
-	switch action {
-	case "install":
-		if err := managed.Install(); err != nil {
-			return err
-		}
-		if err := managed.Start(); err != nil {
-			_ = managed.Uninstall()
-			return err
-		}
-		fmt.Println("background service installed and started")
-	case "uninstall":
-		_ = managed.Stop()
-		if err := managed.Uninstall(); err != nil {
-			return err
-		}
-		fmt.Println("background service stopped and uninstalled")
-	case "status":
-		status, err := managed.Status()
-		if err != nil {
-			return err
-		}
-		fmt.Printf("background service: %s\n", serviceStatus(status))
-	default:
-		if err := service.Control(managed, action); err != nil {
-			return err
-		}
-		verb := map[string]string{
-			"start":   "started",
-			"stop":    "stopped",
-			"restart": "restarted",
-		}[action]
-		fmt.Printf("background service %s\n", verb)
-	}
-	return nil
-}
-
-func newService(configPath string, program service.Interface) (service.Service, error) {
-	expandedConfig, err := config.ExpandPath(configPath)
-	if err != nil {
-		return nil, err
-	}
-	cfg, err := config.Load(expandedConfig)
-	if err != nil {
-		return nil, err
-	}
-	logDirectory := filepath.Dir(cfg.StateFile)
-	if err := os.MkdirAll(logDirectory, 0o700); err != nil {
-		return nil, fmt.Errorf("create service log directory: %w", err)
-	}
-
-	return service.New(program, &service.Config{
-		Name:        serviceName,
-		DisplayName: "Codex Quota Keeper",
-		Description: "Redeem Codex Reset Credits before they expire.",
-		Arguments:   []string{"run", "--config", expandedConfig, "--apply"},
-		Option: service.KeyValue{
-			"UserService":  true,
-			"KeepAlive":    true,
-			"RunAtLoad":    true,
-			"LogOutput":    true,
-			"LogDirectory": logDirectory,
-		},
-	})
-}
-
-func serviceStatus(status service.Status) string {
-	switch status {
-	case service.StatusRunning:
-		return "running"
-	case service.StatusStopped:
-		return "stopped"
-	default:
-		return "unknown"
-	}
 }
 
 func printHuman(
