@@ -11,8 +11,9 @@ import (
 )
 
 type Config struct {
-	StateFile   string            `json:"state_file"`
-	ResetCredit ResetCreditConfig `json:"reset_credit"`
+	ScanInterval string            `json:"scan_interval"`
+	StateFile    string            `json:"state_file"`
+	ResetCredit  ResetCreditConfig `json:"reset_credit"`
 }
 
 type ResetCreditConfig struct {
@@ -25,6 +26,7 @@ type ResetCreditConfig struct {
 
 type Runtime struct {
 	Config
+	ScanIntervalDuration        time.Duration
 	ResetRedeemBeforeDuration   time.Duration
 	ResetRequestTimeoutDuration time.Duration
 }
@@ -35,7 +37,8 @@ func DefaultPath() string {
 
 func Defaults() Config {
 	return Config{
-		StateFile: "~/.local/state/codex-quota-keeper/state.json",
+		ScanInterval: "5m",
+		StateFile:    "~/.local/state/codex-quota-keeper/state.json",
 		ResetCredit: ResetCreditConfig{
 			Enabled:            false,
 			RedeemBeforeExpiry: "10m",
@@ -91,6 +94,10 @@ func WriteDefault(path string) (string, error) {
 }
 
 func (c Config) runtime() (Runtime, error) {
+	scanInterval, err := positiveDuration("scan_interval", c.ScanInterval)
+	if err != nil {
+		return Runtime{}, err
+	}
 	redeemBeforeExpiry, err := positiveDuration(
 		"reset_credit.redeem_before_expiry",
 		c.ResetCredit.RedeemBeforeExpiry,
@@ -120,6 +127,7 @@ func (c Config) runtime() (Runtime, error) {
 
 	return Runtime{
 		Config:                      c,
+		ScanIntervalDuration:        scanInterval,
 		ResetRedeemBeforeDuration:   redeemBeforeExpiry,
 		ResetRequestTimeoutDuration: requestTimeout,
 	}, nil

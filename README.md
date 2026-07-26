@@ -30,7 +30,8 @@ dry-run enabled until you have reviewed several scans.
 
 - Go 1.26 or later when building from source
 - File-based Codex credentials in `~/.codex/auth.json`
-- macOS when using the included `launchd` example
+- A supported service manager such as macOS Launchd or Linux systemd for
+  background installation
 
 If Codex stores credentials in the macOS Keychain instead of `auth.json`,
 automatic redemption is unavailable.
@@ -65,6 +66,7 @@ This writes `~/.config/codex-quota-keeper/config.json`:
 
 ```json
 {
+  "scan_interval": "5m",
   "state_file": "~/.local/state/codex-quota-keeper/state.json",
   "reset_credit": {
     "enabled": false,
@@ -78,24 +80,30 @@ This writes `~/.config/codex-quota-keeper/config.json`:
 
 Set `enabled` to `true` only after reviewing dry-run output.
 
-## Run
+## Run continuously
 
-Scan without redeeming:
+Run in the foreground without redeeming:
 
 ```bash
 codex-quota-keeper run
 ```
 
-Scan with JSON output:
+The process scans immediately, then continues scanning every `scan_interval`
+until it receives an interrupt or termination signal. Configuration is reloaded
+before each scan.
 
-```bash
-codex-quota-keeper run --json
-```
-
-Redeem eligible Credits:
+Run continuously and redeem eligible Credits:
 
 ```bash
 codex-quota-keeper run --apply
+```
+
+Use `once` for a single manual scan:
+
+```bash
+codex-quota-keeper once
+codex-quota-keeper once --json
+codex-quota-keeper once --apply
 ```
 
 With the default threshold:
@@ -103,23 +111,42 @@ With the default threshold:
 - 10 minutes or more remaining: leave the Credit for manual use.
 - Less than 10 minutes remaining: redeem it when `--apply` is present.
 
-## launchd
+## Background service
 
-Copy
-[`deploy/com.jimyag.codex-quota-keeper.plist.example`](deploy/com.jimyag.codex-quota-keeper.plist.example),
-replace the username and binary path, and install it under
-`~/Library/LaunchAgents/`.
+Edit the configuration and set:
 
-The example runs every five minutes and writes logs to:
-
-```text
-/tmp/codex-quota-keeper.log
-/tmp/codex-quota-keeper.err.log
+```json
+"enabled": true
 ```
 
-The example intentionally omits `--apply`, so it remains a dry-run. Add
-`--apply` to `ProgramArguments` only after enabling the feature and reviewing
-the logs.
+Then install and start the current binary as a user service:
+
+```bash
+codex-quota-keeper install
+```
+
+The installed service runs continuously with `--apply`, starts automatically
+after login, and is restarted by the operating system if it exits.
+Place the binary at its final path before installing because the service records
+that absolute path.
+
+Manage it with:
+
+```bash
+codex-quota-keeper status
+codex-quota-keeper stop
+codex-quota-keeper start
+codex-quota-keeper restart
+codex-quota-keeper uninstall
+```
+
+On macOS this is installed as a per-user LaunchAgent. Logs are written beside
+the state file, normally:
+
+```text
+~/.local/state/codex-quota-keeper/com.jimyag.codex-quota-keeper.out.log
+~/.local/state/codex-quota-keeper/com.jimyag.codex-quota-keeper.err.log
+```
 
 Keep the scan interval shorter than `redeem_before_expiry` so an expiring
 Credit is observed in time.
