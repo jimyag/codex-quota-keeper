@@ -8,6 +8,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -199,7 +201,7 @@ func scanOnce(
 			action := *result.CreditAction
 			if !apply {
 				actionLog = append(actionLog, fmt.Sprintf(
-					"dry-run: would redeem reset credit %s before %s to avoid wasting it",
+					"redeem reset credit %s before %s",
 					action.CreditHash,
 					action.ExpiresAt.Format(time.RFC3339),
 				))
@@ -271,33 +273,49 @@ func printHuman(
 	if apply {
 		mode = "apply"
 	}
-	fmt.Printf("time: %s\nmode: %s\n", now.Format(time.RFC3339), mode)
+
+	available := "unknown"
+	nextExpiry := "none"
 	if credits != nil {
-		fmt.Printf("available reset credits: %d\n", credits.AvailableCount)
+		available = strconv.FormatInt(credits.AvailableCount, 10)
+		var earliest int64
 		if credits.Credits != nil {
 			for _, credit := range *credits.Credits {
-				expiry := "none"
-				if credit.ExpiresAt != nil {
-					expiry = time.Unix(*credit.ExpiresAt, 0).Format(time.RFC3339)
+				if credit.Status != "available" || credit.ExpiresAt == nil {
+					continue
 				}
-				fmt.Printf(
-					"reset credit: %s status=%s expires=%s\n",
-					policy.CreditHash(credit.ID),
-					credit.Status,
-					expiry,
-				)
+				if earliest == 0 || *credit.ExpiresAt < earliest {
+					earliest = *credit.ExpiresAt
+				}
 			}
 		}
+		if earliest != 0 {
+			nextExpiry = time.Unix(earliest, 0).Format(time.RFC3339)
+		}
 	}
-	for _, message := range result.Messages {
-		fmt.Printf("info: %s\n", message)
+
+	action := "none"
+	if len(actionLog) > 0 {
+		action = strings.Join(actionLog, "; ")
 	}
-	for _, message := range actionLog {
-		fmt.Printf("action: %s\n", message)
+	fields := []string{
+		"time=" + now.Format(time.RFC3339),
+		"mode=" + mode,
+		"available=" + available,
+		"next_expiry=" + nextExpiry,
+		"action=" + logValue(action),
 	}
-	if len(actionLog) == 0 {
-		fmt.Println("action: none")
+	if len(result.Messages) > 0 {
+		fields = append(fields, "info="+logValue(strings.Join(result.Messages, "; ")))
 	}
+	fmt.Println(strings.Join(fields, " "))
+}
+
+func logValue(value string) string {
+	if strings.ContainsAny(value, " \t\n=\"") {
+		return strconv.Quote(value)
+	}
+	return value
 }
 
 func printJSON(
