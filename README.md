@@ -91,10 +91,11 @@ codex-quota-keeper run
 
 The process scans immediately, then continues scanning every `scan_interval`
 until it receives an interrupt or termination signal. Configuration is reloaded
-before each scan. Text output uses one logfmt-style line per scan:
+before each scan. Text output uses zerolog's human-readable console format with
+one line per scan:
 
 ```text
-time=2026-07-26T23:43:46+08:00 mode=dry-run available=4 next_expiry=2026-07-27T01:00:00+08:00 action=none
+2026-07-26T23:43:46+08:00 INF scan action=none available=4 mode=dry-run next_expiry=2026-07-27T01:00:00+08:00
 ```
 
 Run continuously and redeem eligible Credits:

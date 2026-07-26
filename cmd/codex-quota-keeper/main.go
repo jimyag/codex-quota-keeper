@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"io"
 	"os"
 	"os/signal"
 	"strconv"
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	appversion "github.com/jimmicro/version"
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
 	"github.com/jimyag/codex-quota-keeper/internal/codex"
@@ -22,12 +23,22 @@ import (
 	keeperstate "github.com/jimyag/codex-quota-keeper/internal/state"
 )
 
+var logger = newConsoleLogger(os.Stderr)
+
 func main() {
-	log.SetFlags(log.LstdFlags)
 	if err := newRootCommand().Execute(); err != nil {
-		log.Printf("error: %v", err)
+		logger.Error().Timestamp().Err(err).Msg("command failed")
 		os.Exit(1)
 	}
+}
+
+func newConsoleLogger(output io.Writer) zerolog.Logger {
+	writer := zerolog.ConsoleWriter{
+		Out:        output,
+		NoColor:    true,
+		TimeFormat: time.RFC3339,
+	}
+	return zerolog.New(writer)
 }
 
 func newRootCommand() *cobra.Command {
@@ -144,7 +155,7 @@ func runLoop(
 	for {
 		interval, err := scanOnce(ctx, configPath, statePath, apply, jsonOutput)
 		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("scan failed: %v", err)
+			logger.Error().Timestamp().Err(err).Msg("scan failed")
 		}
 		if interval <= 0 {
 			interval = time.Minute
@@ -227,7 +238,7 @@ func scanOnce(
 	if jsonOutput {
 		err = printJSON(now, apply, credits, result, actionLog)
 	} else {
-		printHuman(now, apply, credits, result, actionLog)
+		printHuman(logger, now, apply, credits, result, actionLog)
 	}
 	return cfg.ScanIntervalDuration, err
 }
@@ -263,6 +274,7 @@ func consumeResetCredit(
 }
 
 func printHuman(
+	logger zerolog.Logger,
 	now time.Time,
 	apply bool,
 	credits *codex.ResetCreditsSummary,
@@ -298,24 +310,16 @@ func printHuman(
 	if len(actionLog) > 0 {
 		action = strings.Join(actionLog, "; ")
 	}
-	fields := []string{
-		"time=" + now.Format(time.RFC3339),
-		"mode=" + mode,
-		"available=" + available,
-		"next_expiry=" + nextExpiry,
-		"action=" + logValue(action),
-	}
+	event := logger.Info().
+		Time(zerolog.TimestampFieldName, now).
+		Str("mode", mode).
+		Str("available", available).
+		Str("next_expiry", nextExpiry).
+		Str("action", action)
 	if len(result.Messages) > 0 {
-		fields = append(fields, "info="+logValue(strings.Join(result.Messages, "; ")))
+		event = event.Str("info", strings.Join(result.Messages, "; "))
 	}
-	fmt.Println(strings.Join(fields, " "))
-}
-
-func logValue(value string) string {
-	if strings.ContainsAny(value, " \t\n=\"") {
-		return strconv.Quote(value)
-	}
-	return value
+	event.Msg("scan")
 }
 
 func printJSON(
