@@ -40,6 +40,9 @@ Download a binary for Linux, macOS, or Windows from
 [GitHub Releases](https://github.com/jimyag/codex-quota-keeper/releases), or
 install from source:
 
+After downloading on Linux or macOS, make the binary executable with
+`chmod +x codex-quota-keeper_*`.
+
 ```bash
 go install github.com/jimyag/codex-quota-keeper/cmd/codex-quota-keeper@latest
 ```
@@ -143,5 +146,5 @@ Credit is observed in time.
 
 ## Release
 
-Pushing a `v*` tag runs GoReleaser and publishes archives for Linux, macOS, and
-Windows on amd64 and arm64.
+Pushing a `v*` tag runs GoReleaser and publishes uncompressed binaries for
+Linux, macOS, and Windows on amd64 and arm64.
